@@ -117,6 +117,8 @@ class IOLoop(object):
         self._stopped = False
         self._thread_ident = None
         self._blocking_signal_threshold = None
+        self.load = 0.0
+        self.load_logger = None
 
         # Create a pipe that we send bogus data to when we want to wake
         # the I/O loop when it is idle
@@ -240,6 +242,8 @@ class IOLoop(object):
             return
         self._thread_ident = thread.get_ident()
         self._running = True
+        collect_time = time.time()
+        poll_time_sum = 0.0
         while True:
             poll_timeout = 3600.0
 
@@ -279,7 +283,21 @@ class IOLoop(object):
                 signal.setitimer(signal.ITIMER_REAL, 0, 0)
 
             try:
+                # sleep_time counts the time within poll wait
+                now = time.time()
+                poll_time = now
+                poll_timeout = min(10 - now + collect_time, poll_timeout)
                 event_pairs = self._impl.poll(poll_timeout)
+                now = time.time()
+                poll_time_sum += now - poll_time
+                # both counters do contain the correct times here
+                if now - collect_time >= 10.0:
+                    self.load = 1.0 - (poll_time_sum / (now - collect_time))
+                    if self.load_logger:
+                        self.load_logger(self.load)
+                    collect_time = now
+                    poll_time_sum = 0.0
+
             except Exception, e:
                 # Depending on python version and IOLoop implementation,
                 # different exception types may be thrown and there are
